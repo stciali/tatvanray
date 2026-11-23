@@ -48,8 +48,10 @@ jobs:
           # Run standalone patcher script
           python3 scripts/patch_gradle.py
 
-      - name: Get Dependencies
-        run: flutter pub get
+      - name: Get Dependencies & Patch Plugins
+        run: |
+          flutter pub get
+          python3 scripts/patch_gradle.py --pub-cache
 
       - name: Run Dart & Flutter Tests
         run: flutter test test/app_logic_test.dart
