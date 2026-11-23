@@ -12,7 +12,6 @@ def patch_settings_gradle():
         with open(kts_path, "r", encoding="utf-8") as f:
             content = f.read()
         if "maven-central.storage-download.googleapis.com" not in content:
-            # Inject Google mirror at top of repositories blocks
             content = re.sub(
                 r"(repositories\s*\{)",
                 r"\1\n        google()\n        " + GOOGLE_MAVEN_MIRROR_KTS,
@@ -98,24 +97,6 @@ def patch_root_gradle():
                 r"\1\n        google()\n        " + GOOGLE_MAVEN_MIRROR_KTS,
                 content
             )
-
-        content += (
-            "\n"
-            "subprojects {\n"
-            "    afterEvaluate {\n"
-            '        if (project.hasProperty("android")) {\n'
-            '            val android = project.extensions.findByName("android")\n'
-            "            if (android != null) {\n"
-            "                try {\n"
-            '                    val method = android::class.java.getMethod("compileSdkVersion", Int::class.javaPrimitiveType)\n'
-            "                    method.invoke(android, 36)\n"
-            "                } catch (e: Exception) {\n"
-            "                }\n"
-            "            }\n"
-            "        }\n"
-            "    }\n"
-            "}\n"
-        )
         with open(root_kts, "w", encoding="utf-8") as f:
             f.write(content)
         print(f"Patched: {root_kts}")
@@ -130,19 +111,6 @@ def patch_root_gradle():
                 r"\1\n        google()\n        " + GOOGLE_MAVEN_MIRROR_GROOVY,
                 content
             )
-
-        content += (
-            "\n"
-            "subprojects {\n"
-            "    afterEvaluate { project ->\n"
-            '        if (project.hasProperty("android")) {\n'
-            "            android {\n"
-            "                compileSdkVersion 36\n"
-            "            }\n"
-            "        }\n"
-            "    }\n"
-            "}\n"
-        )
         with open(root_groovy, "w", encoding="utf-8") as f:
             f.write(content)
         print(f"Patched: {root_groovy}")
