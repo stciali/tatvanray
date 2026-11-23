@@ -34,7 +34,7 @@ jobs:
           flutter create . --platforms=android --org=com.tatvan.ray
           rm -f test/widget_test.dart
 
-          # Proguard keep rules for ML Kit and minify disable to prevent missing class errors
+          # Proguard keep rules for ML Kit to prevent missing class errors
           mkdir -p android/app
           cat << 'EOF' > android/app/proguard-rules.pro
           -keep class com.google.mlkit.** { *; }
@@ -45,42 +45,85 @@ jobs:
           -keepattributes *Annotation*
           EOF
 
-          # Configure build.gradle (disable shrinkResources/minify and bump compileSdk)
-          sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 34/g' android/app/build.gradle || true
-          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle || true
-          sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 34/g' android/app/build.gradle || true
+          # Universal Python patcher supporting both Kotlin DSL (.kts) and Groovy DSL (.gradle)
+          python3 - << 'PYEOF'
+          import os, re
 
-          # Inject proguard and packagingOptions into android/app/build.gradle
-          python3 -c "
-          p = 'android/app/build.gradle'
-          with open(p, 'r') as f:
-              content = f.read()
-          # disable minification for release to guarantee clean first build
-          content = content.replace('buildTypes {', '''
-              buildTypes {
-                  release {
+          # 1. Patch app-level build file
+          app_kts = 'android/app/build.gradle.kts'
+          app_groovy = 'android/app/build.gradle'
+
+          if os.path.exists(app_kts):
+              with open(app_kts, 'r') as f:
+                  content = f.read()
+              content = re.sub(r'compileSdk\s*=\s*flutter\.compileSdkVersion', 'compileSdk = 36', content)
+              content = re.sub(r'minSdk\s*=\s*flutter\.minSdkVersion', 'minSdk = 21', content)
+              content = re.sub(r'targetSdk\s*=\s*flutter\.targetSdkVersion', 'targetSdk = 34', content)
+              release_patch = '''release {
+                      isMinifyEnabled = false
+                      isShrinkResources = false
+                      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")'''
+              if 'isMinifyEnabled' not in content:
+                  content = re.sub(r'release\s*\{', release_patch, content, count=1)
+              with open(app_kts, 'w') as f:
+                  f.write(content)
+              print("Successfully patched " + app_kts)
+
+          if os.path.exists(app_groovy):
+              with open(app_groovy, 'r') as f:
+                  content = f.read()
+              content = re.sub(r'compileSdkVersion\s+flutter\.compileSdkVersion', 'compileSdkVersion 36', content)
+              content = re.sub(r'minSdkVersion\s+flutter\.minSdkVersion', 'minSdkVersion 21', content)
+              content = re.sub(r'targetSdkVersion\s+flutter\.targetSdkVersion', 'targetSdkVersion 34', content)
+              release_patch = '''release {
                       minifyEnabled false
                       shrinkResources false
-                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-                  }
-          ''')
-          with open(p, 'w') as f:
-              f.write(content)
-          "
+                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro''''
+              if 'minifyEnabled' not in content:
+                  content = re.sub(r'release\s*\{', release_patch, content, count=1)
+              with open(app_groovy, 'w') as f:
+                  f.write(content)
+              print("Successfully patched " + app_groovy)
 
-          # Fix subprojects compileSdk check
-          cat << 'EOF' >> android/build.gradle
+          # 2. Patch root-level build file to enforce compileSdk 36 for subprojects
+          root_kts = 'android/build.gradle.kts'
+          root_groovy = 'android/build.gradle'
+
+          if os.path.exists(root_kts):
+              with open(root_kts, 'a') as f:
+                  f.write('''
           subprojects {
-              afterEvaluate { project ->
+              afterEvaluate {
                   if (project.hasProperty("android")) {
-                      android {
-                          compileSdkVersion 34
-                          buildToolsVersion "34.0.0"
+                      val android = project.extensions.findByName("android")
+                      if (android != null) {
+                          try {
+                              val method = android::class.java.getMethod("compileSdkVersion", Int::class.javaPrimitiveType)
+                              method.invoke(android, 36)
+                          } catch (e: Exception) {
+                          }
                       }
                   }
               }
           }
-          EOF
+          ''')
+              print("Successfully patched " + root_kts)
+
+          if os.path.exists(root_groovy):
+              with open(root_groovy, 'a') as f:
+                  f.write('''
+          subprojects {
+              afterEvaluate { project ->
+                  if (project.hasProperty("android")) {
+                      android {
+                          compileSdkVersion 36
+                      }
+                  }
+              }
+          }
+          ''')
+              print("Successfully patched " + root_groovy)
+          PYEOF
 
       - name: Get Dependencies
         run: flutter pub get
@@ -89,7 +132,7 @@ jobs:
         run: flutter test test/app_logic_test.dart
 
       - name: Build Release APK
-        run: flutter build apk --release --no-shrink
+        run: flutter build apk --release --no-tree-shake-icons
 
       - name: Upload APK as Artifact
         uses: actions/upload-artifact@v4
