@@ -28,6 +28,11 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Recreate Flutter Android Native Scaffolding (v2 embedding)
+        run: |
+          rm -rf android
+          flutter create . --platforms=android --org=com.tatvan.ray
+
       - name: Get Dependencies
         run: flutter pub get
 
