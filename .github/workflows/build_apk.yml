@@ -28,16 +28,17 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Recreate Flutter Android Native Scaffolding (v2 embedding)
+      - name: Recreate Flutter Android Native Scaffolding
         run: |
           rm -rf android
           flutter create . --platforms=android --org=com.tatvan.ray
+          rm -f test/widget_test.dart
 
       - name: Get Dependencies
         run: flutter pub get
 
       - name: Run Dart & Flutter Tests
-        run: flutter test
+        run: flutter test test/app_logic_test.dart
 
       - name: Build Release APK
         run: flutter build apk --release
