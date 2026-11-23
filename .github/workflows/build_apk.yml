@@ -28,11 +28,59 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Recreate Flutter Android Native Scaffolding
+      - name: Recreate Flutter Android Native Scaffolding & Configure Proguard
         run: |
           rm -rf android
           flutter create . --platforms=android --org=com.tatvan.ray
           rm -f test/widget_test.dart
+
+          # Proguard keep rules for ML Kit and minify disable to prevent missing class errors
+          mkdir -p android/app
+          cat << 'EOF' > android/app/proguard-rules.pro
+          -keep class com.google.mlkit.** { *; }
+          -dontwarn com.google.mlkit.**
+          -dontwarn com.google_mlkit_text_recognition.**
+          -keep class com.google_mlkit_text_recognition.** { *; }
+          -dontwarn **
+          -keepattributes *Annotation*
+          EOF
+
+          # Configure build.gradle (disable shrinkResources/minify and bump compileSdk)
+          sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 34/g' android/app/build.gradle || true
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle || true
+          sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 34/g' android/app/build.gradle || true
+
+          # Inject proguard and packagingOptions into android/app/build.gradle
+          python3 -c "
+          p = 'android/app/build.gradle'
+          with open(p, 'r') as f:
+              content = f.read()
+          # disable minification for release to guarantee clean first build
+          content = content.replace('buildTypes {', '''
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      shrinkResources false
+                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+                  }
+          ''')
+          with open(p, 'w') as f:
+              f.write(content)
+          "
+
+          # Fix subprojects compileSdk check
+          cat << 'EOF' >> android/build.gradle
+          subprojects {
+              afterEvaluate { project ->
+                  if (project.hasProperty("android")) {
+                      android {
+                          compileSdkVersion 34
+                          buildToolsVersion "34.0.0"
+                      }
+                  }
+              }
+          }
+          EOF
 
       - name: Get Dependencies
         run: flutter pub get
@@ -41,7 +89,7 @@ jobs:
         run: flutter test test/app_logic_test.dart
 
       - name: Build Release APK
-        run: flutter build apk --release
+        run: flutter build apk --release --no-shrink
 
       - name: Upload APK as Artifact
         uses: actions/upload-artifact@v4
