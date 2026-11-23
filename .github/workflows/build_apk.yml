@@ -55,7 +55,8 @@ jobs:
         run: flutter test test/app_logic_test.dart
 
       - name: Build Release APK
-        run: flutter build apk --release --no-tree-shake-icons
+        run: |
+          flutter build apk --release --no-tree-shake-icons || (echo "Retrying build..." && sleep 5 && flutter build apk --release --no-tree-shake-icons)
 
       - name: Upload APK as Artifact
         uses: actions/upload-artifact@v4
